@@ -1,0 +1,260 @@
+#!/usr/bin/env php
+<?php
+
+/*
+  ./wp-install-plugin -p (slug names separated by spaces) -u (user-names separated by spaces)
+*/
+
+define('PLUGINS_DIR', '/home/radicaldesigns/wp-plugins');
+$all_blogs = false;
+
+sequence($argv);
+
+function sequence($args = array()) {
+  global $all_blogs;
+  if (count($args) <= 1) {
+    test();
+  } else {
+    $users = validate_users(get_users($args));
+    if(!$all_blogs) {
+      $blog = validate_blog($users, get_blog($args));
+    }
+    $plugins = validate_plugins(get_plugins($args));
+    foreach($plugins as $slug => $plugin) {
+      if($plugin !== true) {
+        download_plugin($plugin); 
+      }
+      if(!$all_blogs) {
+        foreach($users as $user) {
+          make_copy($slug, $user, $blog);
+        }
+      } else {
+        foreach($all_blogs as $blogs) {
+          make_copy($slug, $blogs['user'], $blogs['subdir']);
+        }
+      }
+    }   
+  }
+}
+
+function check_for_plugin($slug) {
+  if(is_dir(PLUGINS_DIR . '/' . $slug) || file_exists(PLUGINS_DIR . '/' . $slug . '.php')) {
+    return true;
+  }
+  return false;
+}
+
+function check_plugin_exists($slug) {
+  $location = json_decode(file_get_contents('http://api.wordpress.org/plugins/info/1.0/' . $slug . '.json'), true);
+  if(isset($location)) {
+    return $location['download_link'];
+  }
+  return false;
+}
+
+function validate_plugins($plugins = array()) {
+  foreach($plugins as $key => $plugin) {
+    $plugins[$key] = check_for_plugin($plugin);
+    if(!$plugins[$key]) {
+      $plugins[$key] = check_plugin_exists($plugin);
+      if(!$plugins[$key]) {
+        echo 'The plugin ' . $plugin . ' does not exist.' . lb();
+        unset($plugins[$key]);
+      }
+    }
+    if(isset($plugins[$key])) {
+      $plugins[$plugin] = $plugins[$key];
+      unset($plugins[$key]);
+    }
+  }
+  if(count($plugins) == 0) {
+    return false;
+  }
+  return $plugins;
+}
+
+function check_user_exists($user) {
+  if(is_dir('/home/' . $user)) {
+    return true;
+  }
+  return false;
+}
+
+function check_blog_exists($user, $blog = 'blog') {
+  if(is_dir('/home/' . $user . '/public_html/' . $blog)) {
+    return true;
+  }
+  return false;
+}
+
+function get_all_users() {
+  global $all_blogs;
+  $blogs = explode("\n", shell_exec('ls -d /home/*/public_html/*/wp-content/plugins/'));
+  $users = array();
+  $subdirs = array();
+  $match = '~/home/?(.*)/public_html/?(.*)/wp-content/plugins/~';
+  foreach($blogs as $blog) {
+    preg_match($match, $blog, $matches);
+    if(isset($matches[2])) {
+      $users[] = $matches[1];     
+      $subdirs[] = array('user' => $matches[1], 'subdir' => $matches[2]);
+    }
+  }
+  $all_blogs = $subdirs; 
+  return $users;
+}
+
+function validate_users($users) {
+  foreach($users as $key => $user) {
+    if(!check_user_exists($user)) {
+      echo 'The user ' . $user . ' does not exist.' . lb();
+      unset($users[$key]);
+      if($user = 'ALL') {
+        $users = get_all_users();
+      }
+    }
+  }
+  if(count($users) == 0) {
+    return false;
+  }
+  return $users;
+}
+
+function validate_blog($users, $blog = 'blog') {
+  if(is_array($blog)) {
+    $blog = array_shift($blog);
+  }
+  foreach($users as $key => $user) {
+    if(!check_blog_exists($user, $blog)) {
+      echo 'The blog, ' . $blog . ', does not exist for user ' . $user . '.' . lb();
+      unset($users[$key]);
+    }
+  }
+  if(count($users) == 0) {
+    return false;
+  }
+  return $blog;
+}
+
+function download_plugin($download_url) {
+  $filename = array_pop(explode('/', $download_url));
+  $dir = array_shift(explode('.', $filename));
+  if(file_exists(PLUGINS_DIR . '/' . $dir)) {
+    echo 'The file already exists' . lb();
+    return false;
+  }
+  
+  $file_headers = @get_headers($download_url);
+  if($file_headers[0] == 'HTTP/1.1 404 Not Found') {
+    echo 'The download URL is bad.' . lb();
+    return false;
+  }
+
+  shell_exec('wget -O ' . PLUGINS_DIR . '/' . $filename . ' ' . $download_url);
+  shell_exec('unzip ' . PLUGINS_DIR . '/' . $filename . ' -d ' . PLUGINS_DIR);
+  shell_exec('rm ' . PLUGINS_DIR . '/' . $filename);
+  shell_exec('chmod -R 755 ' . PLUGINS_DIR);
+  return true;
+}
+
+function get_plugins($args) {
+  return get_args($args, '-p');
+}
+
+function get_users($args) {
+  return get_args($args, '-u');
+}
+
+function get_blog($args) {
+  $blog = get_args($args, '-b');
+  if(!$blog) return 'blog';
+  return $blog;
+}
+
+function get_args($args, $u_or_p) {
+  $location = array_search($u_or_p, $args);
+  if($location === false) {
+    return false;
+  }
+  $location++;
+
+  if(($u_or_p != '-u') && ($u_or_p != '-p') && ($u_or_p != '-b')) {
+    return false;
+  }
+
+  $items = array();
+  $i = 0;
+  while (($location < count($args)) && !preg_match("/^-[u,p,b]/", $args[$location])) {
+    $items[] = $args[$location];
+    $location++;
+  }
+  if (count($items) == 0) {
+    return false;
+  }
+  return $items;
+}
+
+function make_copy($slug, $user, $blog = 'blog') {
+  if(!file_exists('/home/' . $user . '/public_html/' . $blog . '/wp-content/plugins')) {
+    echo 'The destination /home/' . $user . '/public_html/' . $blog . '/wp-content/plugins does not exist.' . lb();
+    return false;
+  }
+  if(file_exists('/home/' . $user . '/public_html/' . $blog . '/wp-content/plugins/' . $slug)) {
+    echo 'The file /home/' . $user . '/public_html/' . $blog . '/wp-content/plugins/' . $slug . ' already exists.' . lb();
+    return false;
+  }
+  shell_exec('cp -R ' . PLUGINS_DIR . '/' . $slug . ' /home/' . $user . '/public_html/' . $blog . '/wp-content/plugins/' . $slug);
+  return true;
+}
+
+function lb($num = 1) {
+  $breaks = '';
+  for($i = 0; $i < $num; $i++) {
+    $breaks.= '
+';
+  }
+  return $breaks;
+}
+
+function test() {
+  echo 'running tests' . lb();
+  echo 'pass pass_or_fail ' . pass_or_fail(true) . lb();
+  echo 'pass pass_or_fail special ' . pass_or_fail('this is a string') . lb();
+  echo 'fail pass_or_fail ' . pass_or_fail(false) . lb();
+  echo 'pass check_for_plugin ' . pass_or_fail(check_for_plugin('radslide')) . lb();
+  echo 'fail check_for_plugin ' . pass_or_fail(check_for_plugin('radslid')) . lb();
+  echo 'pass check_plugin_exists ' . pass_or_fail(check_plugin_exists('radslide')) . lb();
+  echo 'fail check_plugin_exists ' . pass_or_fail(check_plugin_exists('radslid')) . lb();
+  echo 'pass check_user_exists ' . pass_or_fail(check_user_exists('radicaldesigns')) . lb();
+  echo 'fail check_user_exists ' . pass_or_fail(check_user_exists('radslid')) . lb();
+  echo 'pass get_users ' . pass_or_fail(get_users(array('./wp-install-plugin', '-u', 'sara', 'cooper', '-p', 'radslide', 'cforms'))) . lb();
+  echo 'pass get_users ' . pass_or_fail(get_users(array('./wp-install-plugin', '-u', 'sara', 'cooper'))) . lb();
+  echo 'fail get_users ' . pass_or_fail(get_users(array('./wp-install-plugin', 'sara', 'cooper', '-p', 'radslide', 'cforms'))) . lb();
+  echo 'pass get_plugins ' . pass_or_fail(get_plugins(array('./wp-install-plugin', '-u', 'sara', 'cooper', '-p', 'radslide', 'cforms'))) . lb();
+  echo 'pass get_plugins ' . pass_or_fail(get_plugins(array('./wp-install-plugin', '-p', 'radslide', 'cforms'))) . lb();
+  echo 'fail get_plugins ' . pass_or_fail(get_plugins(array('./wp-install-plugin', '-u', 'sara', 'cooper', 'radslide', 'cforms'))) . lb();
+  echo 'pass validate_users ' . pass_or_fail(validate_users(array('radicaldesigns', 'wve'))) . lb();
+  echo 'pass validate_users special ' . pass_or_fail(validate_users(array('radicaldesigns', 'wve', 'sara'))) . lb();
+  echo 'fail validate_users ' . pass_or_fail(validate_users(array('radicaldesignsr', 'wver'))) . lb();
+  echo 'pass validate_plugins ' . pass_or_fail(validate_plugins(array('radslide', 'cforms', 'hide-my-site'))) . lb();
+  echo 'pass validate_plugins special ' . pass_or_fail(validate_plugins(array('radslide', 'cformsr', 'hide-my-site'))) . lb();
+  echo 'fail validate_plugins ' . pass_or_fail(validate_plugins(array('radslidr', 'hide-my-siter'))) . lb();
+  echo 'pass make_copy ' . pass_or_fail(make_copy('cforms', 'rdwpdemo')) . lb();
+  echo 'fail make_copy ' . pass_or_fail(make_copy('radslidr', 'rdwpdemo')) . lb();
+  echo 'fail make_copy ' . pass_or_fail(make_copy('cforms', 'radicaldesigns')) . lb();
+  echo 'pass download_plugin ' . pass_or_fail(download_plugin('http://downloads.wordpress.org/plugin/hide-my-site.zip')) . lb();
+  echo 'fail download_plugin ' . pass_or_fail(download_plugin('http://downloads.wordpress.org/plugin/radslide.zip')) . lb();
+  echo 'fail download_plugin ' . pass_or_fail(download_plugin('http://downloads.wordpress.org/plugin/radslide.zipper')) . lb();
+}
+
+function pass_or_fail($bool = false) {
+  if(($bool !== false) || !isset($bool)) {
+    if($bool === true) {
+      return '+';
+    }
+    return '+: ' . print_r($bool, true);
+  }
+  return '-';
+}
+
+?>

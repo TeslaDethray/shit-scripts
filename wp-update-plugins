@@ -1,0 +1,177 @@
+#!/usr/bin/env php
+<?php
+
+if(isset($argv) && (count($argv) > 1)) {
+  $plugins_dir_array = array($argv[1]); 
+} else {
+  $get_all = explode("\n", shell_exec('find /home/*/public_html/*/wp-content/plugins -maxdepth 0 -type d'));
+  if($get_all[(count($get_all) - 1)] == '') unset($get_all[(count($get_all) - 1)]);
+  $plugins_dir_array = $get_all; 
+} 
+
+foreach($plugins_dir_array as $plugins_dir) {
+  get_filenames($plugins_dir);
+  $old_plugins = get_all_plugin_data(true, $plugins_dir);
+  $new_plugins = get_new_plugin_data($old_plugins);
+  $queue_for_update = compare_plugin_versions($old_plugins, $new_plugins);
+  execute_updates($queue_for_update, $plugins_dir);
+    echo lb() . 'Update complete!' . lb();
+  shell_exec('chmod -R 755 ' . $plugins_dir . '/*');
+  shell_exec('find ' . $plugins_dir . '/* -type f -print0 | xargs -0 chmod 644');
+  shell_exec('chown -R www ' . $plugins_dir . '/*');
+}
+
+function get_filenames($plugins_dir) {
+  $files = scandir($plugins_dir);
+  unset($files[0]);
+  unset($files[1]);
+}
+
+function get_new_plugin_data($plugins = array()) {
+  $slugs_and_versions = array();
+  echo lb() . 'Getting current data on plugins from WordPress API.';
+
+  foreach($plugins as $slug => $plugin) {
+    echo '.';
+    $plugin_info = json_decode(file_get_contents('http://api.wordpress.org/plugins/info/1.0/' . $slug . '.json'),true);
+    if(isset($plugin_info)) {
+      $slugs_and_versions[$slug] = array('version' => $plugin_info['version'], 'url' => $plugin_info['download_link']);
+    }
+  }
+
+  return $slugs_and_versions;
+}
+
+function compare_plugin_versions($old_plugins, $slugs_and_versions) {
+  $queue_for_update = array();
+  echo lb() . 'Comparing old and new versions and compiling list of plugins to update.';
+
+  foreach($slugs_and_versions as $slug => $info_array) {
+    echo '.';
+    if(version_compare($slugs_and_versions[$slug]['version'], $old_plugins[$slug]['Version']) > 0) {
+      $queue_for_update[$slug] = $slugs_and_versions[$slug]['url'];
+    }
+  }
+  return $queue_for_update;
+}
+
+
+function execute_updates($queue_for_update, $plugins_dir) {
+  $count = 0;
+
+  foreach($queue_for_update as $dir => $update_url) {
+    $count++;
+    echo lb() . 'Updating ' . $dir . lb();
+    $filename = array_pop(explode('/', $update_url));
+    shell_exec('rm -r ' . $plugins_dir . '/' . $dir);
+    shell_exec('wget -O ' . $plugins_dir . '/' . $filename . ' ' . $update_url);
+    shell_exec('unzip ' . $plugins_dir . '/' . $filename . ' -d ' . $plugins_dir);
+    shell_exec('rm ' . $plugins_dir . '/' . $filename);
+    //echo 'rm -r ' . $plugins_dir . '/' . $dir . lb();
+    //echo 'wget -O ' . $plugins_dir . '/' . $filename . ' ' . $update_url . lb();
+    //echo 'unzip ' . $plugins_dir . '/' . $filename . ' -d ' . $plugins_dir . lb();
+    //echo 'rm ' . $plugins_dir . '/' . $filename . lb();
+  }
+  if(count($queue_for_update) == 0) {
+    echo lb() . 'All plugins are currently up-to-date!' . lb();
+  }
+  echo lb() . 'Updated ' . $count . ' plugins.';
+}
+
+function get_all_plugin_data($slugs = false, $plugins_dir) {
+  echo 'Gleaning plugin information from all plugin files.';
+  $files = scandir($plugins_dir);
+  $plugins = array();
+
+  unset($files[0]);
+  unset($files[1]);
+
+  foreach($files as $file) {
+    if(is_dir($plugins_dir . '/' . $file)) {
+      $plugin_slug = $file; 
+      $exploded_plugin_name = explode(' ', $file);
+      $plugin = $file . '/' . $exploded_plugin_name[0] . '.php';
+      if(!file_exists($plugins_dir . '/' . $plugin)) {
+        unset($plugin);
+        $subdir_files = scandir($plugins_dir . '/' . $file);
+        unset($subdir_files[0]);
+        unset($subdir_files[1]);
+        foreach($subdir_files as $subdir_file) {
+          if (substr($subdir_file, -4) == '.php') {
+            $contents = file_get_contents($plugins_dir . '/' . $file . '/' . $subdir_file);
+            if((mb_strpos($contents, 'Plugin Name: ') !== false) && (mb_strpos($contents, 'Version: ') !== false)) {
+                $plugin = $file . '/' . $subdir_file;
+            }
+          }
+        }
+      }
+    } elseif (substr($file, -4) == '.php') {
+      $plugin_slug = substr($file, 0, -4);
+      $plugin = $file;
+    } else {
+      continue;
+    }
+    if(isset($plugin)) {
+      if($slugs) {
+        $plugins[$plugin_slug] = get_plugin_data($plugin, $plugins_dir);
+      } else {
+        $plugins[$plugin] = get_plugin_data($plugin, $plugins_dir);
+      }
+      unset($plugin);
+    }
+  }
+  return $plugins;
+}
+
+function do_post_request($url, $data, $optional_headers = null) { 
+  $params = array('http' => array( 
+    'method' => 'POST', 
+    'content' => $data 
+  )); 
+  if ($optional_headers!== null) { 
+    $params['http']['header'] = $optional_headers; 
+  } 
+  $ctx = stream_context_create($params); 
+  $fp = @fopen($url, 'rb', false, $ctx); 
+  if (!$fp) { 
+    throw new Exception("Problem with $url, $php_errormsg"); 
+  } 
+  $response = @stream_get_contents($fp); 
+  if ($response === false) { 
+    throw new Exception("Problem reading data from $url, $php_errormsg"); 
+  } 
+  return $response; 
+}
+
+function get_plugin_data($filename, $plugins_dir) {
+  echo '.';
+  $plugin_info = array('Name' => '', 'PluginURI' => '', 'Version' => '', 'Description' => '', 'Author' => '', 'AuthorURI' => '', 'TextDomain' => '', 'DomainPath' => '', 'Network' => '', 'Title' => '', 'AuthorName' => '');
+  $info_keys = array('Name' => 'Plugin Name: ', 'PluginURI' => 'Plugin URI: ', 'Description' => 'Description: ', 'Author' => 'Author: ', 'Version' => 'Version: ', 'AuthorURI' => 'Author URI: ', 'AuthorName' => 'Author: ', 'Title' => 'Plugin Name: ');
+  $handle = fopen($plugins_dir . '/' . $filename, 'r');
+  if (is_bool($handle)) {
+    //echo $plugins_dir . '/' . $filename . ': ' . $handle . '\n';
+  } else {
+    while (!feof($handle)) {
+        $line = fgets($handle);
+        foreach($info_keys as $key => $info) {
+          $placement = mb_strpos($line, $info);
+          if(($placement !== false) && ($plugin_info[$key] == '')) {
+            $plugin_info[$key] = trim(substr($line, ($placement + strlen($info))));
+          } 
+        }
+    }
+  }
+  fclose($handle); 
+  return $plugin_info;
+}
+
+function lb($num = 1) {
+  $breaks = '';
+  for($i = 0; $i < $num; $i++) {
+    $breaks.= '
+';
+  }
+  return $breaks;
+}
+
+?>
