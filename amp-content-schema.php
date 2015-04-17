@@ -1,4 +1,5 @@
 <?php
+//Outputs AMP content for review by client to CSV
 
 $articles = array();
 $sections = array();
@@ -10,77 +11,32 @@ $top_level_count = 0;
 
 /** Pulling out the list of desirec content **/
 require("db.php");
-$options = array();
+$db = new db('cesr_pared');
+$function = function($row) {$return = ($row['migrate'] == 'Y') ? $row : false; return $return;};
+$options = $db->query("SELECT * FROM `list`;",  $function);
 
-$query = "SELECT `id`, `migrate`, `drupal_type`, `method`, `complete` FROM `list`;";
-
-if($result = $mysqli->query($query)) {
-  /* fetch associative array */
-  while ($row = $result->fetch_assoc()) {
-    if($row['migrate'] == 'Y') $options[$row['id']] = $row;
-  }
-
-  /* free result set */
-  $result->free();
-}
-
-$mysqli->close();
-/** end **/
-
-$mysqli = new mysqli("localhost", "root", "amethyst", "cesr");
-
-/* check connection */
-if($mysqli->connect_errno) {
-  printf("Connect failed: %s\n", $mysqli->connect_error);
-  exit();
-}
-
+$db = new db('cesr');
 $query = "SELECT `id`, `title`, `type`, `datecreated`, `class`, `pageorder`, `publish`, `test`, `custom2`, `custom3` FROM `articles`;";
+$function = function($row) {if(isset($extra_vars[$row['id']]) && ($row['custom3'] == 'English')) return $row;};
+$articles = $db->query($query, $function, $options);
 
-if($result = $mysqli->query($query)) {
-  /* fetch associative array */
-  while ($row = $result->fetch_assoc()) {
-    if(isset($options[$row['id']]) && ($row['custom3'] == 'English')) $articles[$row['id']] = $row;
-  }
-
-  /* free result set */
-  $result->free();
-}
 
 $query = "SELECT `id`, `class` FROM `class`;";
-
-if($result = $mysqli->query($query)) {
-  /* fetch associative array */
-  while ($row = $result->fetch_assoc()) {
-    $classes[$row['id']] = $row;
-  }
-
-  /* free result set */
-  $result->free();
-}
+$classes = $db->query($query);
 
 $query = "SELECT `id`, `type`, `timestamp`, `description`, `parent` FROM `articletype` ORDER BY `parent`;";
-
-if($result = $mysqli->query($query)) {
-  /* fetch associative array */
-  while ($row = $result->fetch_assoc()) {
-    $sections[$row['id']] = array(
-      'id' => $row['id'],
-      'type' => $row['type'],
-      'timestamp' => $row['timestamp'],
-      'description' => $row['description'],
-      'parent' => $row['parent'],
-      'subsections' => array()
-    );
-    if($row['parent'] == 0) $top_level_count++;
-  }
-
-  /* free result set */
-  $result->free();
-}
-
-/* close connection */
-$mysqli->close();
+$function = function($row) {
+  return array(
+    'id' => $row['id'],
+    'type' => $row['type'],
+    'timestamp' => $row['timestamp'],
+    'description' => $row['description'],
+    'parent' => $row['parent'],
+    'subsections' => array()
+  );
+};
+$sections = $db->query($query, $function);
+die(print_r($sections, true));
 
 $array = array(
   'Article ID',
@@ -131,5 +87,3 @@ foreach($csv as $line) {
   echo $line . '
 ';
 }
-
-?>

@@ -1,0 +1,8 @@
+#!/bin/bash
+# Hacks off the first four characters of every file in a directory
+
+cd directoryname
+for f in *
+do
+  echo "mv \"$f\" \"${f:4}\""
+done

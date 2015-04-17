@@ -1,9 +1,10 @@
 #!/usr/bin/php
 <?php
+//Displays the content of a Drupal site in a clear manner for review
 
 require("db.php");
 
-$domain = 'http://coolcalifornia.org';
+$domain = '';
 date_default_timezone_set('America/Los_Angeles');
 $acceptable_nodes = array('article', 'banner', 'carousel_video', 'case_study', 'fact', 'highlight', 'page', 'tip', 'tout', 'webform');
 
@@ -75,5 +76,3 @@ $mysqli->close();
 foreach($content as $id => $item) {
   echo '"' . implode('","', $item) . '"' . "\n";
 }
-
-?>

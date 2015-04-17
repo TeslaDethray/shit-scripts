@@ -1,5 +1,6 @@
 #!/usr/bin/php
 <?php
+//Counts the number of articles under each section and its subsections.
 
 $articles = array();
 $sections = array();
@@ -81,5 +82,3 @@ function gather_parents($sections) {
 }
 
 print_r($sections);
-
-?>

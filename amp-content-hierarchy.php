@@ -1,5 +1,6 @@
 #!/usr/bin/php
 <?php
+//Shows AMP sections and articles in a hierarchical manner
 
 $articles = array();
 $sections = array();
@@ -75,5 +76,3 @@ function gather_parents($sections) {
 }
 
 print_r($sections);
-
-?>

@@ -1,12 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+#Imports SSA name data into a Django 2.x database
 
 import os
 import glob
 import sqlite3 as db
 
-db_name = 'names.sqlite3'
-path = '/Users/tesladethray/Downloads/namesbystate/'
+db_name = ''
+path = ''
 extension = '.TXT'
 
 def dictionarize(array):

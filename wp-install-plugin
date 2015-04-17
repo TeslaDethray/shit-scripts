@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+//Installs a WordPress plugin
 
 /*
   ./wp-install-plugin -p (slug names separated by spaces) -u (user-names separated by spaces)
@@ -256,5 +257,3 @@ function pass_or_fail($bool = false) {
   }
   return '-';
 }
-
-?>

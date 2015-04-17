@@ -1,10 +1,13 @@
 #!/usr/bin/env php
 <?php
+//Updates WordPress plugins for all sites on an entire server
+
+define('PLUGINS_DIRS', '/home/*/public_html/*/wp-content/plugins'); //Use * for where there is variation
 
 if(isset($argv) && (count($argv) > 1)) {
   $plugins_dir_array = array($argv[1]); 
 } else {
-  $get_all = explode("\n", shell_exec('find /home/*/public_html/*/wp-content/plugins -maxdepth 0 -type d'));
+  $get_all = explode("\n", shell_exec('find ' . PLUGINS_DIRS . ' -maxdepth 0 -type d'));
   if($get_all[(count($get_all) - 1)] == '') unset($get_all[(count($get_all) - 1)]);
   $plugins_dir_array = $get_all; 
 } 
@@ -173,5 +176,3 @@ function lb($num = 1) {
   }
   return $breaks;
 }
-
-?>
